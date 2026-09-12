@@ -1,0 +1,73 @@
+version: '3.9'
+
+services:
+  postgres:
+    volumes:
+      - /mnt/data/postgres:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+
+  redis:
+    command: >
+      redis-server /etc/redis/redis.conf
+        --appendonly yes
+        --save 900 1
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+
+  backend:
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      GUNICORN_WORKERS: 8
+      GUNICORN_THREADS: 4
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+
+  celery-worker:
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+
+  backup:
+    build:
+      context: ./docker/backup
+    image: smart-lounge/backup:latest
+    container_name: lounge_backup
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_NAME: ${POSTGRES_DB:-lounge}
+      DB_USER: ${POSTGRES_USER:-lounge}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_SCHEDULE: ${BACKUP_SCHEDULE:-0 3 * * *}
+      BACKUP_S3_ENABLED: ${BACKUP_S3_ENABLED:-false}
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+    volumes:
+      - /mnt/backups:/backups
+      - logs:/var/log/backup
+    networks:
+      - lounge-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"

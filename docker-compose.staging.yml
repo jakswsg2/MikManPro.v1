@@ -1,0 +1,17 @@
+version: '3.9'
+
+services:
+  backend:
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+    environment:
+      DEBUG: "false"
+      SENTRY_ENVIRONMENT: staging
+
+  postgres:
+    volumes:
+      - /mnt/staging/postgres:/var/lib/postgresql/data

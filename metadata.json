@@ -1,0 +1,8 @@
+{
+  "name": "Smart Lounge — الاستراحة الذكية",
+  "description": "بوابة موحدة للوصول إلى المحتوى وإدارة الصلاحيات عبر خوادم الوسائط Jellyfin و Emby داخل الشبكة المحلية",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

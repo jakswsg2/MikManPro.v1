@@ -1,0 +1,310 @@
+version: '3.9'
+
+networks:
+  lounge-frontend:
+    driver: bridge
+  lounge-backend:
+    driver: bridge
+    internal: true
+  lounge-monitoring:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  static_files:
+    driver: local
+  media_files:
+    driver: local
+  logs:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  loki_data:
+    driver: local
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "5"
+    labels: "service,environment"
+
+x-common-env: &common-env
+  TZ: Asia/Aden
+  PYTHONUNBUFFERED: "1"
+
+services:
+  # ============ PostgreSQL ============
+  postgres:
+    build:
+      context: ./docker/postgres
+    image: smart-lounge/postgres:16
+    container_name: lounge_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-lounge}
+      POSTGRES_USER: ${POSTGRES_USER:-lounge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=en_US.utf8"
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - lounge-backend
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lounge} -d ${POSTGRES_DB:-lounge}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # ============ Redis ============
+  redis:
+    build:
+      context: ./docker/redis
+    image: smart-lounge/redis:7
+    container_name: lounge_redis
+    restart: unless-stopped
+    command: ["redis-server", "/etc/redis/redis.conf"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+      - ./docker/redis/redis.conf:/etc/redis/redis.conf:ro
+    networks:
+      - lounge-backend
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # ============ Backend (Django) ============
+  backend:
+    build:
+      context: ./smart_lounge
+      dockerfile: ../docker/backend/Dockerfile
+    image: smart-lounge/backend:${IMAGE_TAG:-latest}
+    container_name: lounge_backend
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-lounge}
+      DB_USER: ${POSTGRES_USER:-lounge}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SECRET_KEY: ${SECRET_KEY}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY}
+      FERNET_KEY: ${FERNET_KEY}
+      HMAC_PLAYBACK_KEY: ${HMAC_PLAYBACK_KEY}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      DEBUG: "false"
+      RUN_MIGRATIONS: "true"
+      COLLECT_STATIC: "true"
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-4}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-4}
+    volumes:
+      - static_files:/app/staticfiles
+      - media_files:/app/media
+      - logs:/app/logs
+    networks:
+      - lounge-backend
+      - lounge-frontend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # ============ Celery Worker ============
+  celery-worker:
+    build:
+      context: ./smart_lounge
+      dockerfile: ../docker/backend/Dockerfile
+    image: smart-lounge/backend:${IMAGE_TAG:-latest}
+    container_name: lounge_celery_worker
+    restart: unless-stopped
+    command: >
+      celery -A config worker
+        --loglevel=info
+        --concurrency=${CELERY_CONCURRENCY:-4}
+        --max-tasks-per-child=1000
+        --prefetch-multiplier=1
+        -Q default,high_priority,low_priority,sync,notifications,billing
+    environment:
+      <<: *common-env
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      DB_HOST: postgres
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SECRET_KEY: ${SECRET_KEY}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY}
+      FERNET_KEY: ${FERNET_KEY}
+      HMAC_PLAYBACK_KEY: ${HMAC_PLAYBACK_KEY}
+    volumes:
+      - media_files:/app/media
+      - logs:/app/logs
+    networks:
+      - lounge-backend
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config inspect ping || exit 1"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 60s
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+
+  # ============ Celery Beat ============
+  celery-beat:
+    build:
+      context: ./smart_lounge
+      dockerfile: ../docker/backend/Dockerfile
+    image: smart-lounge/backend:${IMAGE_TAG:-latest}
+    container_name: lounge_celery_beat
+    restart: unless-stopped
+    command: >
+      celery -A config beat
+        --loglevel=info
+        --scheduler django_celery_beat.schedulers:DatabaseScheduler
+        --pidfile=/tmp/celerybeat.pid
+    environment:
+      <<: *common-env
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      DB_HOST: postgres
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SECRET_KEY: ${SECRET_KEY}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY}
+      FERNET_KEY: ${FERNET_KEY}
+      HMAC_PLAYBACK_KEY: ${HMAC_PLAYBACK_KEY}
+    volumes:
+      - logs:/app/logs
+    networks:
+      - lounge-backend
+    depends_on:
+      backend:
+        condition: service_healthy
+    logging: *default-logging
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # ============ Frontend ============
+  frontend:
+    build:
+      context: ./smart-lounge-web
+      dockerfile: ../docker/frontend/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api/v1}
+        VITE_APP_NAME: ${VITE_APP_NAME:-Smart Lounge}
+        VITE_DEFAULT_LANG: ${VITE_DEFAULT_LANG:-ar}
+    image: smart-lounge/frontend:${IMAGE_TAG:-latest}
+    container_name: lounge_frontend
+    restart: unless-stopped
+    networks:
+      - lounge-frontend
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  # ============ Nginx (Reverse Proxy) ============
+  nginx:
+    build:
+      context: ./docker/nginx
+    image: smart-lounge/nginx:1.25
+    container_name: lounge_nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - static_files:/var/www/static:ro
+      - media_files:/var/www/media:ro
+      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+      - logs:/var/log/nginx
+    networks:
+      - lounge-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M

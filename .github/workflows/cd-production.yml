@@ -1,0 +1,27 @@
+name: CD Production
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
+      
+      - name: Deploy
+        run: |
+          ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
+            "cd /opt/smart-lounge && \
+             git fetch --tags && \
+             git checkout ${{ github.ref_name }} && \
+             ./scripts/deploy.sh production ${{ github.ref_name }}"

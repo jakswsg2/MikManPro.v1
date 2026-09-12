@@ -1,0 +1,211 @@
+import uuid
+from django.conf import settings
+from django.db import migrations, models
+import django.db.models.deletion
+import django.utils.timezone
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ('accounts', '0001_initial'),
+        ('tenancy', '0001_initial'),
+    ]
+
+    operations = [
+        migrations.CreateModel(
+            name='OnboardingState',
+            fields=[
+                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                ('status', models.CharField(choices=[('NOT_STARTED', 'لم يبدأ (Not Started)'), ('IN_PROGRESS', 'قيد الإجراء (In Progress)'), ('COMPLETED', 'مكتمل (Completed)'), ('SKIPPED', 'تم التخطي (Skipped)')], db_index=True, default='NOT_STARTED', max_length=20, verbose_name='حالة الإعداد')),
+                ('current_step', models.CharField(default='welcome', max_length=64, verbose_name='الخطوة الحالية')),
+                ('completed_steps', models.JSONField(blank=True, default=list, verbose_name='الخطوات المكتملة')),
+                ('skipped_steps', models.JSONField(blank=True, default=list, verbose_name='الخطوات المتخطاة')),
+                ('step_data', models.JSONField(blank=True, default=dict, verbose_name='بيانات الخطوات المؤقتة')),
+                ('started_at', models.DateTimeField(blank=True, null=True, verbose_name='تاريخ ووقت البدء')),
+                ('completed_at', models.DateTimeField(blank=True, null=True, verbose_name='تاريخ ووقت الإكمال')),
+                ('skipped_at', models.DateTimeField(blank=True, null=True, verbose_name='تاريخ ووقت التخطي')),
+                ('last_step_at', models.DateTimeField(default=django.utils.timezone.now, verbose_name='تاريخ آخر نشاط في المسار')),
+                ('onboarding_version', models.CharField(default='v1.0', max_length=20, verbose_name='إصدار مسار التهيئة')),
+                ('resume_url', models.CharField(blank=True, max_length=255, null=True, verbose_name='رابط الاستئناف')),
+                ('is_first_login', models.BooleanField(default=True, verbose_name='تسجيل دخول لأول مرة')),
+                ('source', models.CharField(choices=[('HOTSPOT', 'Hotspot Captive Portal'), ('RADIUS', 'RADIUS Direct'), ('GOOGLE', 'Google OAuth'), ('MANUAL', 'يدوي / إداري (Manual)')], default='HOTSPOT', max_length=20, verbose_name='مصدر التسجيل')),
+                ('completion_percentage', models.DecimalField(decimal_places=2, default=0.0, max_digits=5, verbose_name='نسبة الإكمال %')),
+                ('created_at', models.DateTimeField(auto_now_add=True, verbose_name='تاريخ الإنشاء')),
+                ('updated_at', models.DateTimeField(auto_now=True, verbose_name='تاريخ التحديث')),
+                ('tenant', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='onboarding_states', to='tenancy.tenant', verbose_name='المستأجر / الاستراحة')),
+                ('user', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, related_name='onboarding_state', to=settings.AUTH_USER_MODEL, verbose_name='المستخدم')),
+            ],
+            options={
+                'verbose_name': 'حالة الإعداد الأولي للمستخدم (Onboarding State)',
+                'verbose_name_plural': 'حالات الإعداد الأولي للمستخدمين',
+            },
+        ),
+        migrations.CreateModel(
+            name='UserPreferences',
+            fields=[
+                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                ('language', models.CharField(choices=[('ar', 'العربية'), ('en', 'English')], default='ar', max_length=10, verbose_name='اللغة المفضلة')),
+                ('timezone', models.CharField(default='Asia/Aden', max_length=50, verbose_name='المنطقة الزمنية')),
+                ('date_format', models.CharField(default='DD/MM/YYYY', max_length=20, verbose_name='تنسيق التاريخ')),
+                ('time_format', models.CharField(choices=[('12H', '12 ساعة (ص/م)'), ('24H', '24 ساعة (نظام عسكري)')], default='24H', max_length=10, verbose_name='تنسيق الوقت')),
+                ('theme', models.CharField(choices=[('LIGHT', 'فاتح (Light)'), ('DARK', 'داكن (Dark)'), ('AUTO', 'تلقائي حسب نظام التشغيل')], default='DARK', max_length=10, verbose_name='المظهر والتصميم')),
+                ('autoplay_next', models.BooleanField(default=True, verbose_name='تشغيل الحلقة التالية تلقائياً')),
+                ('autoplay_preview', models.BooleanField(default=False, verbose_name='تشغيل المعاينة الترويجية تلقائياً')),
+                ('default_quality', models.CharField(default='AUTO', max_length=20, verbose_name='جودة البث الافتراضية')),
+                ('subtitle_language', models.CharField(blank=True, max_length=10, null=True, verbose_name='لغة الترجمة المفضلة')),
+                ('audio_language', models.CharField(blank=True, max_length=10, null=True, verbose_name='لغة الصوت المفضلة')),
+                ('subtitle_enabled', models.BooleanField(default=False, verbose_name='تفعيل الترجمة افتراضياً')),
+                ('subtitle_size', models.CharField(choices=[('SMALL', 'صغير (Small)'), ('MEDIUM', 'متوسط (Medium)'), ('LARGE', 'كبير (Large)')], default='MEDIUM', max_length=20, verbose_name='حجم خط الترجمة')),
+                ('notifications_enabled', models.BooleanField(default=True, verbose_name='تفعيل الإشعارات العامة')),
+                ('email_notifications', models.BooleanField(default=True, verbose_name='إشعارات البريد الإلكتروني')),
+                ('push_notifications', models.BooleanField(default=False, verbose_name='إشعارات المتصفح الفورية (Push)')),
+                ('whatsapp_notifications', models.BooleanField(default=False, verbose_name='إشعارات تطبيق واتساب')),
+                ('marketing_emails', models.BooleanField(default=False, verbose_name='الرسائل والعروض الترويجية')),
+                ('content_maturity_rating', models.CharField(default='ALL', max_length=20, verbose_name='التصنيف العمري للمحتوى')),
+                ('reduce_motion', models.BooleanField(default=False, verbose_name='تقليل المؤثرات الحركية (Reduce Motion)')),
+                ('reduce_data_usage', models.BooleanField(default=False, verbose_name='توفير استهلاك البيانات (Low Bandwidth)')),
+                ('created_at', models.DateTimeField(auto_now_add=True, verbose_name='تاريخ الإنشاء')),
+                ('updated_at', models.DateTimeField(auto_now=True, verbose_name='تاريخ التحديث')),
+                ('tenant', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='user_preferences', to='tenancy.tenant', verbose_name='المستأجر / الاستراحة')),
+                ('user', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, related_name='preferences', to=settings.AUTH_USER_MODEL, verbose_name='المستخدم')),
+            ],
+            options={
+                'verbose_name': 'تفضيلات المستخدم (User Preferences)',
+                'verbose_name_plural': 'تفضيلات المستخدمين',
+            },
+        ),
+        migrations.CreateModel(
+            name='UserConsent',
+            fields=[
+                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                ('consent_type', models.CharField(choices=[('TERMS_OF_SERVICE', 'شروط الخدمة والاتفاقية (Terms of Service)'), ('PRIVACY_POLICY', 'سياسة الخصوصية (Privacy Policy)'), ('DATA_PROCESSING', 'معالجة البيانات التشغيلية (Data Processing)'), ('MARKETING', 'المراسلات والعروض التسويقية (Marketing)'), ('ANALYTICS', 'التحليلات وتحسين الأداء (Analytics)'), ('COOKIES', 'ملفات تعريف الارتباط والتخزين المحلي (Cookies & Storage)'), ('THIRD_PARTY', 'التكامل مع خدمات وسيرفرات الطرف الثالث (Third Party)')], db_index=True, max_length=40, verbose_name='نوع الموافقة')),
+                ('consent_version', models.CharField(max_length=20, verbose_name='إصدار وثيقة الموافقة')),
+                ('granted', models.BooleanField(default=True, verbose_name='ممنوحة / مقبولة')),
+                ('granted_at', models.DateTimeField(default=django.utils.timezone.now, verbose_name='تاريخ ووقت المنح')),
+                ('revoked_at', models.DateTimeField(blank=True, null=True, verbose_name='تاريخ ووقت الإلغاء')),
+                ('revoked_reason', models.CharField(blank=True, max_length=255, null=True, verbose_name='سبب إلغاء الموافقة')),
+                ('ip_address', models.GenericIPAddressField(blank=True, null=True, verbose_name='عنوان IP للمستخدم وقت التوقيع')),
+                ('user_agent', models.TextField(blank=True, default='', verbose_name='بيانات المتصفح والنظام (User-Agent)')),
+                ('signature_hash', models.CharField(max_length=128, verbose_name='بصمة التوقيع الرقمية للتحقق')),
+                ('metadata', models.JSONField(blank=True, default=dict, verbose_name='بيانات وصفية إضافية')),
+                ('created_at', models.DateTimeField(auto_now_add=True, verbose_name='تاريخ الإنشاء')),
+                ('updated_at', models.DateTimeField(auto_now=True, verbose_name='تاريخ التحديث')),
+                ('tenant', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='user_consents', to='tenancy.tenant', verbose_name='المستأجر / الاستراحة')),
+                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='consents', to=settings.AUTH_USER_MODEL, verbose_name='المستخدم')),
+            ],
+            options={
+                'verbose_name': 'موافقة المستخدم القانونية (User Consent)',
+                'verbose_name_plural': 'موافقات المستخدمين القانونية',
+            },
+        ),
+        migrations.CreateModel(
+            name='UserProfileCompletion',
+            fields=[
+                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                ('full_name', models.CharField(blank=True, max_length=200, null=True, verbose_name='الاسم الكامل')),
+                ('display_name', models.CharField(blank=True, max_length=100, null=True, verbose_name='اسم العرض والظهور')),
+                ('phone', models.CharField(blank=True, max_length=30, null=True, verbose_name='رقم الهاتف')),
+                ('phone_verified', models.BooleanField(default=False, verbose_name='رقم الهاتف مؤكد')),
+                ('email', models.EmailField(blank=True, max_length=254, null=True, verbose_name='البريد الإلكتروني')),
+                ('email_verified', models.BooleanField(default=False, verbose_name='البريد الإلكتروني مؤكد')),
+                ('avatar_url', models.CharField(blank=True, max_length=500, null=True, verbose_name='رابط الصورة الشخصية')),
+                ('birth_date', models.DateField(blank=True, null=True, verbose_name='تاريخ الميلاد')),
+                ('gender', models.CharField(blank=True, choices=[('MALE', 'ذكر'), ('FEMALE', 'أنثى'), ('OTHER', 'أخرى / لا أرغب بالتحديد')], max_length=20, null=True, verbose_name='الجنس')),
+                ('country', models.CharField(blank=True, max_length=100, null=True, verbose_name='الدولة')),
+                ('city', models.CharField(blank=True, max_length=100, null=True, verbose_name='المدينة')),
+                ('preferred_genres', models.JSONField(blank=True, default=list, verbose_name='التصنيفات المفضلة (Genres)')),
+                ('preferred_content_types', models.JSONField(blank=True, default=list, verbose_name='أنواع المحتوى المفضلة (Movies, Series, Live TV)')),
+                ('completion_fields', models.JSONField(blank=True, default=dict, verbose_name='سجل الحقول المكتملة')),
+                ('completion_percentage', models.DecimalField(decimal_places=2, default=0.0, max_digits=5, verbose_name='نسبة إكمال الملف %')),
+                ('is_optional_complete', models.BooleanField(default=False, verbose_name='تم إكمال الحقول الاختيارية')),
+                ('completed_at', models.DateTimeField(blank=True, null=True, verbose_name='تاريخ إكمال الملف')),
+                ('created_at', models.DateTimeField(auto_now_add=True, verbose_name='تاريخ الإنشاء')),
+                ('updated_at', models.DateTimeField(auto_now=True, verbose_name='تاريخ التحديث')),
+                ('tenant', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='profile_completions', to='tenancy.tenant', verbose_name='المستأجر / الاستراحة')),
+                ('user', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, related_name='profile_completion', to=settings.AUTH_USER_MODEL, verbose_name='المستخدم')),
+            ],
+            options={
+                'verbose_name': 'إكمال الملف الشخصي (Profile Completion)',
+                'verbose_name_plural': 'إحصائيات إكمال الملفات الشخصية',
+            },
+        ),
+        migrations.CreateModel(
+            name='OnboardingStepTemplate',
+            fields=[
+                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                ('step_key', models.CharField(db_index=True, max_length=64, verbose_name='المفتاح المعرّف للخطوة (مثل: welcome, profile_basics)')),
+                ('display_name', models.CharField(max_length=100, verbose_name='اسم العرض الأساسي')),
+                ('display_name_ar', models.CharField(max_length=100, verbose_name='اسم العرض بالعربية')),
+                ('display_name_en', models.CharField(max_length=100, verbose_name='اسم العرض بالإنجليزية')),
+                ('description', models.TextField(blank=True, null=True, verbose_name='وصف الخطوة والهدف منها')),
+                ('step_type', models.CharField(choices=[('INFO', 'عرض معلومات ترحيبية وتوجيهية (Info / Welcome)'), ('FORM', 'نموذج إدخال وتعديل بيانات (Form)'), ('CONSENT', 'موافقات وشروط قانونية (Consent)'), ('PREFERENCE', 'تفضيلات المستخدم (Preferences)'), ('CHOICE', 'اختيارات مخصصة (Choice)'), ('TOUR', 'جولة تفاعلية في مزايا المنصة (Feature Tour)'), ('REDIRECT', 'توجيه مشروط لصفحة أو خدمة (Redirect / Plans)'), ('CUSTOM', 'خطوة مخصصة وتوسعية (Custom Step)')], default='INFO', max_length=30, verbose_name='نوع وطبيعة الخطوة')),
+                ('order', models.IntegerField(default=10, verbose_name='ترتيب الخطوة في التسلسل')),
+                ('is_required', models.BooleanField(default=False, verbose_name='خطوة إلزامية لإكمال التهيئة')),
+                ('is_skippable', models.BooleanField(default=True, verbose_name='قابلة للتخطي بواسطة المستخدم')),
+                ('can_resume_from', models.BooleanField(default=True, verbose_name='يمكن استئناف المسار من عندها')),
+                ('depends_on', models.JSONField(blank=True, default=list, verbose_name='قائمة الخطوات التابعة المشروطة لاكتمال هذه الخطوة')),
+                ('config', models.JSONField(blank=True, default=dict, verbose_name='إعدادات ومتغيرات الخطوة')),
+                ('is_active', models.BooleanField(default=True, verbose_name='نشطة وتعمل في المسار')),
+                ('created_at', models.DateTimeField(auto_now_add=True, verbose_name='تاريخ الإنشاء')),
+                ('updated_at', models.DateTimeField(auto_now=True, verbose_name='تاريخ التحديث')),
+                ('tenant', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='onboarding_step_templates', to='tenancy.tenant', verbose_name='المستأجر / الاستراحة (NULL = قالب عام لجميع الاستراحات)')),
+            ],
+            options={
+                'verbose_name': 'قالب خطوة مسار التهيئة (Onboarding Step Template)',
+                'verbose_name_plural': 'قوالب خطوات مسار التهيئة',
+                'ordering': ['order', 'created_at'],
+            },
+        ),
+        migrations.AddIndex(
+            model_name='onboardingstate',
+            index=models.Index(fields=['user'], name='accounts_on_user_id_idx'),
+        ),
+        migrations.AddIndex(
+            model_name='onboardingstate',
+            index=models.Index(fields=['status'], name='accounts_on_status_idx'),
+        ),
+        migrations.AddIndex(
+            model_name='onboardingstate',
+            index=models.Index(fields=['tenant', 'status'], name='accounts_on_tenant_status_idx'),
+        ),
+        migrations.AddConstraint(
+            model_name='userpreferences',
+            constraint=models.UniqueConstraint(fields=('user',), name='unique_user_preferences'),
+        ),
+        migrations.AddIndex(
+            model_name='userconsent',
+            index=models.Index(fields=['user', 'consent_type'], name='accounts_uc_user_type_idx'),
+        ),
+        migrations.AddIndex(
+            model_name='userconsent',
+            index=models.Index(fields=['consent_type', 'granted'], name='accounts_uc_type_granted_idx'),
+        ),
+        migrations.AddConstraint(
+            model_name='userconsent',
+            constraint=models.UniqueConstraint(fields=('user', 'consent_type', 'consent_version'), name='unique_user_consent_per_version'),
+        ),
+        migrations.AddIndex(
+            model_name='userprofilecompletion',
+            index=models.Index(fields=['user'], name='accounts_upc_user_idx'),
+        ),
+        migrations.AddIndex(
+            model_name='userprofilecompletion',
+            index=models.Index(fields=['is_optional_complete'], name='accounts_upc_opt_idx'),
+        ),
+        migrations.AddIndex(
+            model_name='onboardingsteptemplate',
+            index=models.Index(fields=['tenant', 'is_active', 'order'], name='accounts_ost_tenant_ord_idx'),
+        ),
+        migrations.AddIndex(
+            model_name='onboardingsteptemplate',
+            index=models.Index(fields=['step_key'], name='accounts_ost_step_key_idx'),
+        ),
+        migrations.AddConstraint(
+            model_name='onboardingsteptemplate',
+            constraint=models.UniqueConstraint(condition=models.Q(('tenant__isnull', False)), fields=('tenant', 'step_key'), name='unique_tenant_step_key'),
+        ),
+        migrations.AddConstraint(
+            model_name='onboardingsteptemplate',
+            constraint=models.UniqueConstraint(condition=models.Q(('tenant__isnull', True)), fields=('step_key',), name='unique_global_step_key'),
+        ),
+    ]
