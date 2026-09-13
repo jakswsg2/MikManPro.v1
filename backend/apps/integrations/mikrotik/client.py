@@ -2,6 +2,7 @@ import time
 import socket
 import logging
 from typing import List, Dict, Any, Optional
+import routeros_api
 
 from .exceptions import (
     RouterConnectionError,
@@ -35,20 +36,36 @@ class RouterOSClient:
         self.use_ssl = use_ssl
         self.timeout = timeout
         self.is_connected = False
+        self._pool = None
+
+    def _get_api(self):
+        if self._pool is None:
+            self._pool = routeros_api.RouterOsApiPool(
+                host=self.host,
+                username=self.username,
+                password=self.password,
+                port=self.port,
+                use_ssl=self.use_ssl,
+                plaintext_login=True,
+                ssl_verify=False,
+                ssl_verify_hostname=False,
+            )
+        self.is_connected = True
+        return self._pool.get_api()
+
+    def close(self):
+        if self._pool is not None:
+            self._pool.disconnect()
+            self._pool = None
+        self.is_connected = False
 
     def connect(self) -> bool:
-        """Attempts to open TCP socket to MikroTik router"""
+        """Authenticate against the real RouterOS API."""
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(self.timeout)
-            # Fast check
-            result = s.connect_ex((self.host, self.port))
-            s.close()
-            self.is_connected = (result == 0)
-            return self.is_connected
+            self._get_api()
+            return True
         except Exception:
-            # Fallback to simulation mode in sandbox/LAN test environments
-            self.is_connected = False
+            self.close()
             return False
 
     def get_system_resource(self) -> Dict[str, Any]:
@@ -56,97 +73,31 @@ class RouterOSClient:
         يرسل أمر: /system/resource/print
         يجلب إحصائيات المعالج، الذاكرة، ومدة العمل
         """
-        if not self.connect():
-            # Return realistic router telemetry for local simulation
-            return {
-                'platform': 'MikroTik',
-                'board-name': 'RB4011iGS+5HacQ2HnD',
-                'version': '7.14 (stable)',
-                'uptime': '18d 14:32:10',
-                'cpu': 'ARM 4-core @ 1400MHz',
-                'cpu-load': 7,
-                'free-memory': 812450000,
-                'total-memory': 1073741824,
-                'free-hdd-space': 489000000,
-                'architecture-name': 'arm',
-            }
-        return {
-            'board-name': 'RB4011iGS+5HacQ2HnD',
-            'version': '7.14',
-            'uptime': '18d 14:32:10',
-            'cpu-load': 6,
-        }
+        return self._get_api().get_resource('/system/resource').get()[0]
 
     def get_system_identity(self) -> str:
         """
         يرسل أمر: /system/identity/print
         """
-        return "MikroTik-Lounge-Core"
+        identity = self._get_api().get_resource('/system/identity').get()
+        return identity[0].get('name', '') if identity else ''
 
     def get_active_hotspot_users(self) -> List[Dict[str, Any]]:
         """
         يرسل أمر: /ip/hotspot/active/print
         يجلب قائمة المتصلين حالياً بشبكة الـ Hotspot
         """
-        return [
-            {
-                '.id': '*1',
-                'server': 'hotspot1',
-                'user': 'CARD-10001',
-                'address': '192.168.1.104',
-                'mac-address': 'E4:5F:01:88:B2:10',
-                'login-by': 'http-chap',
-                'uptime': '01:42:15',
-                'session-time-left': '06:17:45',
-                'bytes-in': 14582910,
-                'bytes-out': 892019482,
-                'radius': 'yes',
-            },
-            {
-                '.id': '*2',
-                'server': 'hotspot1',
-                'user': 'VIP-77002',
-                'address': '192.168.1.115',
-                'mac-address': '38:F9:D3:21:44:A9',
-                'login-by': 'http-pap',
-                'uptime': '03:10:02',
-                'session-time-left': '20:49:58',
-                'bytes-in': 42018890,
-                'bytes-out': 3491028192,
-                'radius': 'yes',
-            },
-            {
-                '.id': '*3',
-                'server': 'hotspot1',
-                'user': 'KIDS-33010',
-                'address': '192.168.1.122',
-                'mac-address': 'BC:D0:74:11:92:EF',
-                'login-by': 'mac-cookie',
-                'uptime': '00:35:10',
-                'session-time-left': '01:24:50',
-                'bytes-in': 8921004,
-                'bytes-out': 420198000,
-                'radius': 'yes',
-            },
-            {
-                '.id': '*4',
-                'server': 'hotspot1',
-                'user': 'STAFF-01',
-                'address': '192.168.1.50',
-                'mac-address': '70:85:C2:55:61:98',
-                'login-by': 'http-chap',
-                'uptime': '08:15:22',
-                'session-time-left': 'unlimited',
-                'bytes-in': 18920140,
-                'bytes-out': 1420198000,
-                'radius': 'no',
-            }
-        ]
+        return self._get_api().get_resource('/ip/hotspot/active').get()
 
     def remove_active_hotspot_user(self, user_id_or_ip: str) -> bool:
         """
         يرسل أمر: /ip/hotspot/active/remove
         لطرد أو إنهاء جلسة مستخدم محدد (Kick User)
         """
-        logger.info(f"MikroTik RouterOS: Removing active user {user_id_or_ip}")
+        users = self._get_api().get_resource('/ip/hotspot/active').get()
+        matches = [user for user in users if user.get('user') == user_id_or_ip or user.get('address') == user_id_or_ip]
+        if not matches:
+            return False
+        self._get_api().get_resource('/ip/hotspot/active').remove(id=matches[0]['.id'])
+        logger.info(f"MikroTik RouterOS: Removed active user {user_id_or_ip}")
         return True

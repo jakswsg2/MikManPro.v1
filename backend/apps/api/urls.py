@@ -8,6 +8,7 @@ from .views import (
     CurrentUserView, UserViewSet, ProfileViewSet,
     PermissionViewSet, MediaServerViewSet, LibraryViewSet,
     MediaItemViewSet,
+    TenantViewSet, SiteViewSet,
     CaptivePortalLoginView, SSOExchangeView, CustomTokenRefreshView,
     SessionRevokeView, SessionRevokeAllView,
     LoungeSessionViewSet, ExternalIdentityViewSet,
@@ -70,6 +71,8 @@ from .search_views import (
 
 router = DefaultRouter()
 router.register(r'users', UserViewSet, basename='user')
+router.register(r'tenants', TenantViewSet, basename='tenant')
+router.register(r'sites', SiteViewSet, basename='site')
 router.register(r'profiles', ProfileViewSet, basename='profile')
 router.register(r'permissions', PermissionViewSet, basename='permission')
 router.register(r'media-servers', MediaServerViewSet, basename='media-server')

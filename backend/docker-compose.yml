@@ -28,6 +28,30 @@ services:
     ports:
       - "6379:6379"
 
+  emby:
+    image: emby/embyserver:latest
+    container_name: smart_lounge_emby
+    restart: unless-stopped
+    environment:
+      - UID=${EMBY_UID:-1000}
+      - GID=${EMBY_GID:-1000}
+      - GIDLIST=${EMBY_GIDLIST:-1000}
+    volumes:
+      - emby_config:/config
+      - emby_cache:/cache
+      - ${EMBY_MEDIA_PATH:-../media/emby}:/mnt/media:ro
+    ports:
+      - "8096:8096"
+      - "8920:8920"
+      - "7359:7359/udp"
+      - "1900:1900/udp"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8096/System/Info/Public || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
   backend:
     build:
       context: .
@@ -88,3 +112,5 @@ volumes:
   redis_data:
   static_volume:
   media_volume:
+  emby_config:
+  emby_cache:

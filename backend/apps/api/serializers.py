@@ -15,6 +15,21 @@ from apps.core.crypto import decrypt_secret
 from apps.content.models import Library, MediaItem, Season, Episode, MediaSource, LogicalContentGroup
 from apps.integrations.mikrotik.models import MikroTikRouter
 from apps.integrations.radius.models import RadiusServer
+from apps.tenancy.models import Tenant, Site
+
+
+class SiteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Site
+        fields = ['id', 'tenant', 'name', 'code', 'is_active', 'created_at', 'updated_at']
+
+
+class TenantSerializer(serializers.ModelSerializer):
+    sites = SiteSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Tenant
+        fields = ['id', 'name', 'slug', 'is_active', 'created_at', 'updated_at', 'sites']
 
 class PermissionSerializer(serializers.ModelSerializer):
     class Meta:
