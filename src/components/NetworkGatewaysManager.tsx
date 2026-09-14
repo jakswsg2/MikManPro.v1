@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Server,
   Radio,
@@ -20,7 +20,9 @@ import {
   ChevronDown,
   Layers,
   Database,
-  ArrowRight
+  ArrowRight,
+  Plus,
+  X
 } from 'lucide-react';
 import {
   MikroTikRouterInfo,
@@ -34,6 +36,7 @@ import {
   INITIAL_RADIUS_SERVERS,
   INITIAL_AUDIT_LOGS
 } from '../data/phase2Data';
+import { getAccessToken, apiFetch } from '../lib/apiClient';
 
 export const NetworkGatewaysManager: React.FC = () => {
   const [activeSubTab, setActiveSubTab] = useState<'mikrotik' | 'radius' | 'audit'>('mikrotik');
@@ -55,29 +58,85 @@ export const NetworkGatewaysManager: React.FC = () => {
     latency: number;
     attributes: Record<string, any>;
   } | null>(null);
+  const [isAddRouterOpen, setIsAddRouterOpen] = useState(false);
+  const [isSavingRouter, setIsSavingRouter] = useState(false);
+  const [routerFormError, setRouterFormError] = useState<string | null>(null);
+  const [newRouter, setNewRouter] = useState({ name: '', host: '', port: '8728', username: 'lounge_gateway', password: '', use_ssl: false });
+
+  useEffect(() => {
+    let mounted = true;
+    fetch('/api/v1/gateways/mikrotik/routers/')
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('تعذر قراءة روترات Django')))
+      .then((payload) => {
+        if (mounted && Array.isArray(payload.results)) setRouters(payload.results);
+      })
+      .catch(() => {
+        // Keep local data only when the backend is unavailable.
+      });
+    return () => { mounted = false; };
+  }, []);
+
+  const handleAddRouter = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setIsSavingRouter(true);
+    setRouterFormError(null);
+    const payload = { ...newRouter, port: Number(newRouter.port) };
+
+    try {
+      const response = await apiFetch('/api/v1/gateways/mikrotik/routers/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error('تعذر حفظ الراوتر في الخادم الخلفي');
+      const saved = await response.json();
+      setRouters((current) => [...current, saved]);
+    } catch {
+      const localRouter: MikroTikRouterInfo = {
+        id: `local-router-${Date.now()}`,
+        name: newRouter.name,
+        host: newRouter.host,
+        port: Number(newRouter.port),
+        use_ssl: newRouter.use_ssl,
+        username: newRouter.username,
+        identity: 'بانتظار الفحص',
+        routeros_version: 'غير معروف',
+        model: 'غير معروف',
+        is_online: false,
+        is_active: true,
+        latency_ms: 0,
+        cpu_load: 0,
+        memory_free_mb: 0,
+        uptime: '-',
+        active_hotspot_users_count: 0,
+      };
+      setRouters((current) => [...current, localRouter]);
+      setRouterFormError('تمت الإضافة محليًا فقط. شغّل Backend وراجع الاتصال لحفظه في قاعدة البيانات.');
+    }
+    setNewRouter({ name: '', host: '', port: '8728', username: 'lounge_gateway', password: '', use_ssl: false });
+    setIsSavingRouter(false);
+    setIsAddRouterOpen(false);
+  };
 
   // Router ping handler
   const handlePingRouter = async () => {
     setIsPingingRouter(true);
-    await new Promise((r) => setTimeout(r, 600));
-    const randomLatency = +(1.0 + Math.random() * 0.8).toFixed(2);
-    setPingResult({
-      success: true,
-      latency: randomLatency,
-      time: new Date().toLocaleTimeString('ar-EG'),
-    });
-    setRouters((prev) =>
-      prev.map((r, idx) =>
-        idx === 0
-          ? {
-              ...r,
-              latency_ms: randomLatency,
-              cpu_load: Math.floor(15 + Math.random() * 8),
-              last_seen_at: new Date().toISOString(),
-            }
-          : r
-      )
-    );
+    try {
+      const router = routers[0];
+      if (!router) throw new Error('لا يوجد روتر محفوظ في Django');
+      const response = await apiFetch(`/api/v1/gateways/mikrotik/routers/${router.id}/ping/`, { method: 'POST' });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || payload.message || 'فشل فحص MikroTik');
+      const health = payload.health;
+      setPingResult({ success: true, latency: health.latency_ms, time: new Date().toLocaleTimeString('ar-EG') });
+      setRouters((prev) => prev.map((item) => item.id === router.id ? payload.router : item));
+    } catch (error) {
+      setPingResult(null);
+      setRouterFormError(error instanceof Error ? error.message : 'فشل فحص MikroTik الحقيقي');
+    }
     setIsPingingRouter(false);
   };
 
@@ -205,9 +264,22 @@ export const NetworkGatewaysManager: React.FC = () => {
               <Shield className="w-3.5 h-3.5" />
               <span>سجل التدقيق الأمني ({auditLogs.length})</span>
             </button>
+            <button
+              onClick={() => { setRouterFormError(null); setIsAddRouterOpen(true); }}
+              className="px-3 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>إضافة روتر</span>
+            </button>
           </div>
         </div>
       </div>
+
+      {routerFormError && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+          {routerFormError}
+        </div>
+      )}
 
       {/* TAB 1: MikroTik RouterOS Gateway */}
       {activeSubTab === 'mikrotik' && (
@@ -582,6 +654,55 @@ export const NetworkGatewaysManager: React.FC = () => {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {isAddRouterOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true">
+          <form onSubmit={handleAddRouter} className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl space-y-4 text-right">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div>
+                <h2 className="text-lg font-bold text-white">إضافة روتر MikroTik</h2>
+                <p className="text-xs text-slate-400 mt-1">ستُخزّن كلمة المرور مشفرة في Backend.</p>
+              </div>
+              <button type="button" onClick={() => setIsAddRouterOpen(false)} className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white" aria-label="إغلاق">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="text-xs text-slate-300">اسم الروتر
+                <input required value={newRouter.name} onChange={(event) => setNewRouter({ ...newRouter, name: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" placeholder="Lounge Core" />
+              </label>
+              <label className="text-xs text-slate-300">العنوان IP أو DDNS
+                <input required value={newRouter.host} onChange={(event) => setNewRouter({ ...newRouter, host: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white font-mono" placeholder="router.example.com أو 192.168.1.1" />
+              </label>
+              <label className="text-xs text-slate-300">منفذ API
+                <input required type="number" min="1" max="65535" value={newRouter.port} onChange={(event) => setNewRouter({ ...newRouter, port: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white font-mono" placeholder="8728 أو 8729 أو 443" />
+              </label>
+              <label className="text-xs text-slate-300">اسم مستخدم API
+                <input required value={newRouter.username} onChange={(event) => setNewRouter({ ...newRouter, username: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
+              </label>
+              <label className="text-xs text-slate-300 sm:col-span-2">كلمة مرور API
+                <input required type="password" value={newRouter.password} onChange={(event) => setNewRouter({ ...newRouter, password: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
+              </label>
+            </div>
+
+            <label className="flex items-center gap-2 text-xs text-slate-300">
+              <input type="checkbox" checked={newRouter.use_ssl} onChange={(event) => setNewRouter({ ...newRouter, use_ssl: event.target.checked })} />
+              اتصال مشفر API-SSL (يمكن استخدام 443 عبر DDNS)
+            </label>
+            <p className="text-[11px] leading-relaxed text-slate-400">
+              عند استخدام DDNS مع 443، يجب إعداد Port Forward في الراوتر من المنفذ الخارجي 443 إلى منفذ RouterOS API-SSL الداخلي 8729، ثم اكتب اسم DDNS والمنفذ 443 هنا.
+            </p>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setIsAddRouterOpen(false)} className="px-4 py-2 rounded-lg border border-slate-700 text-xs font-bold text-slate-300 hover:bg-slate-800">إلغاء</button>
+              <button type="submit" disabled={isSavingRouter} className="px-4 py-2 rounded-lg bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50">
+                {isSavingRouter ? 'جارِ الحفظ...' : 'حفظ الروتر'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>

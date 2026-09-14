@@ -135,6 +135,75 @@ class MultiTenantEngineService {
     return [...this.tenants];
   }
 
+  /** Load the canonical tenant directory from Django/PostgreSQL when available. */
+  public async syncFromBackend(): Promise<boolean> {
+    try {
+      const response = await fetch('/api/v1/tenants/');
+      if (!response.ok) return false;
+
+      const payload = await response.json();
+      const records = payload.results || payload;
+      if (!Array.isArray(records)) return false;
+
+      this.tenants = records.map((record: any): Tenant => ({
+        id: String(record.id),
+        name: record.name,
+        name_ar: record.name,
+        name_en: record.name,
+        slug: record.slug,
+        code: record.slug.toUpperCase(),
+        status: record.is_active ? 'ACTIVE' : 'SUSPENDED',
+        is_active: record.is_active,
+        timezone: 'Asia/Aden',
+        default_language: 'ar',
+        supported_languages: ['ar', 'en'],
+        default_currency: 'YER',
+        subscription_plan: 'STANDARD',
+        max_sites: record.sites?.length || 1,
+        max_users: 0,
+        max_media_servers: 0,
+        created_at: record.created_at,
+        updated_at: record.updated_at,
+        settings: { ...DEFAULT_TENANT_SETTINGS },
+        branding: {
+          primary_color: '#f59e0b',
+          secondary_color: '#0f172a',
+          app_name: record.name,
+        },
+      }));
+
+      this.sites = records.flatMap((record: any): Site[] => (record.sites || []).map((site: any) => ({
+        id: String(site.id),
+        tenant_id: String(record.id),
+        tenant_name: record.name,
+        name: site.name,
+        code: site.code,
+        slug: site.code.toLowerCase(),
+        status: site.is_active ? 'ACTIVE' : 'SUSPENDED',
+        site_type: 'LOUNGE',
+        is_active: site.is_active,
+        timezone: 'Asia/Aden',
+        capacity: 0,
+        settings: {},
+        created_at: site.created_at,
+        updated_at: site.updated_at,
+      })));
+
+      if (!this.tenants.some((tenant) => tenant.id === this.activeTenantId)) {
+        this.activeTenantId = this.tenants[0]?.id || '';
+      }
+      const activeSites = this.getSitesForTenant(this.activeTenantId);
+      this.activeSiteId = activeSites[0]?.id || '';
+      this.saveState();
+      set_global_current_tenant_id(this.activeTenantId || null);
+      set_global_current_site_id(this.activeSiteId || null);
+      this.applyTenantBranding(this.getActiveTenant());
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   public getTenantById(id: string): Tenant | undefined {
     return this.tenants.find(t => t.id === id);
   }

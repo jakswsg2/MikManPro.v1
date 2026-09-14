@@ -41,9 +41,9 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="sticky top-0 z-40 w-full bg-slate-950/85 backdrop-blur-md border-b border-slate-800/80 select-none">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-3">
         {/* Left Side: Brand Logo & Navigation Links */}
-        <div className="flex items-center gap-6 sm:gap-8">
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
           {/* Brand Logo */}
           <div 
             onClick={() => setActiveView('home')}
@@ -52,7 +52,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 font-black text-sm shadow-md shadow-amber-500/20 group-hover:scale-105 transition-transform">
               SL
             </div>
-            <div className="hidden sm:block text-right">
+            <div className="hidden lg:block text-right">
               <span className="text-sm font-extrabold text-white tracking-tight block leading-tight">
                 {t.appName}
               </span>
@@ -63,7 +63,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Nav Links */}
-          <nav className="flex items-center gap-1 sm:gap-2 overflow-x-auto py-1 scrollbar-none">
+          <nav className="flex items-center gap-0.5 sm:gap-1 overflow-x-auto py-1 scrollbar-none min-w-0 flex-1">
             {[
               { id: 'home', label: t.home },
               { id: 'movies', label: t.movies },
@@ -78,7 +78,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   key={nav.id}
                   onClick={() => setActiveView(nav.id)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 whitespace-nowrap ${
+                    className={`px-2 sm:px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 whitespace-nowrap ${
                     activeView === nav.id
                       ? 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
                       : 'text-slate-300 hover:text-white hover:bg-slate-900'
@@ -93,7 +93,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* Right Side: Search, Language, User Profile, Admin Drawer */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {/* Quick Search Trigger */}
           <button
             onClick={() => setActiveView('search')}
@@ -111,7 +111,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <NotificationsDropdown onNavigate={(target) => setActiveView(target)} />
 
           {/* Multi-Tenant & Site Selector */}
-          <div className="hidden sm:block">
+          <div className="hidden xl:block">
             <TenantSwitcher
               onOpenTenantsManagement={onOpenTenantsManagement}
               onOpenRLSSandbox={onOpenRLSSandbox}

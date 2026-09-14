@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { MultiTenantEngine, ProvisionTenantInput } from '../../services/tenantEngine';
 import { Tenant, TenantStatus, TenantPlan, CrossTenantAuditAttempt } from '../../types';
 import { 
@@ -50,6 +50,14 @@ export const SuperAdminTenantsView: React.FC<SuperAdminTenantsViewProps> = ({ cu
     default_site: any;
   } | null>(null);
   const [copiedPassword, setCopiedPassword] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    MultiTenantEngine.syncFromBackend().then((synced) => {
+      if (mounted && synced) refreshData();
+    });
+    return () => { mounted = false; };
+  }, []);
 
   // Form State
   const [newTenantForm, setNewTenantForm] = useState<ProvisionTenantInput>({

@@ -1,10 +1,16 @@
 import socket
 import logging
 import requests
+import threading
 from typing import List, Dict, Any, Optional
 from urllib.parse import urlparse
 from django.utils import timezone
 from apps.media_servers.models import DiscoveredMediaServer
+
+try:
+    from zeroconf import ServiceBrowser, ServiceListener, Zeroconf
+except ImportError:
+    ServiceBrowser = ServiceListener = Zeroconf = None
 
 logger = logging.getLogger(__name__)
 
@@ -129,12 +135,89 @@ class LanDiscoveryService:
         return discovered
 
     def discover_mdns(self, timeout: int = 3, tenant_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """
-        mDNS / Zeroconf Discovery stub for '_jellyfin._tcp.local.' and '_emby._tcp.local.'.
-        """
-        # Real zeroconf protocol listener if available, otherwise safe fallback
+        """Discover Jellyfin, Emby, and Plex services advertised over mDNS."""
+        if Zeroconf is None:
+            logger.warning("mDNS discovery is unavailable because zeroconf is not installed")
+            return []
+
         discovered = []
-        logger.info(f"Initiated mDNS discovery (timeout={timeout}s)")
+        seen = set()
+        finished = threading.Event()
+        service_types = (
+            '_jellyfin._tcp.local.',
+            '_emby._tcp.local.',
+            '_plexmediasvr._tcp.local.',
+        )
+
+        service = self
+
+        class Listener(ServiceListener):
+            def _handle(self, service_type: str, name: str) -> None:
+                try:
+                    info = zeroconf.get_service_info(service_type, name, timeout=timeout * 1000)
+                    if not info:
+                        return
+                    addresses = info.parsed_addresses()
+                    if not addresses or not info.port:
+                        return
+
+                    for host in addresses:
+                        key = (host, info.port)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        result = service.probe_http_target(host, info.port, timeout=min(2.0, max(0.5, timeout / 2)))
+                        if not result:
+                            service_type_lower = service_type.lower()
+                            guess = DiscoveredMediaServer.ServerTypeGuess.UNKNOWN
+                            if 'jellyfin' in service_type_lower:
+                                guess = DiscoveredMediaServer.ServerTypeGuess.JELLYFIN
+                            elif 'emby' in service_type_lower:
+                                guess = DiscoveredMediaServer.ServerTypeGuess.EMBY
+                            elif 'plex' in service_type_lower:
+                                guess = DiscoveredMediaServer.ServerTypeGuess.PLEX
+                            result = {
+                                'host': host,
+                                'port': info.port,
+                                'server_type_guess': guess,
+                                'version_guess': None,
+                                'confidence_score': 0.75,
+                                'raw_response': {'service_name': name, 'service_type': service_type},
+                            }
+
+                        discovered.append(service.record_discovery(
+                            host=result['host'],
+                            port=result['port'],
+                            server_type=result['server_type_guess'],
+                            version=result['version_guess'],
+                            confidence=result['confidence_score'],
+                            discovery_method=DiscoveredMediaServer.DiscoveryMethod.MDNS,
+                            raw_response=result['raw_response'],
+                            tenant_id=tenant_id,
+                        ))
+                except Exception as exc:
+                    logger.debug("mDNS service probe failed for %s: %s", name, exc)
+
+            def add_service(self, zeroconf_instance, service_type, name):
+                self._handle(service_type, name)
+
+            def update_service(self, zeroconf_instance, service_type, name):
+                self._handle(service_type, name)
+
+            def remove_service(self, zeroconf_instance, service_type, name):
+                return None
+
+        zeroconf = Zeroconf()
+        try:
+            listener = Listener()
+            browsers = [ServiceBrowser(zeroconf, service_type, listener) for service_type in service_types]
+            finished.wait(timeout=max(0, timeout))
+            _ = browsers
+        except Exception as exc:
+            logger.warning("mDNS discovery failed: %s", exc)
+        finally:
+            zeroconf.close()
+
         return discovered
 
     def discover_ssdp(self, timeout: int = 3, tenant_id: Optional[str] = None) -> List[Dict[str, Any]]:

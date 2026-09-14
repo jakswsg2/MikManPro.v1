@@ -1,5 +1,7 @@
 from django.contrib import admin
+from django.http import JsonResponse
 from django.urls import path, include
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.conf import settings
 from django.conf.urls.static import static
 from drf_spectacular.views import (
@@ -9,6 +11,7 @@ from drf_spectacular.views import (
 )
 
 urlpatterns = [
+    path('api/csrf/', ensure_csrf_cookie(lambda request: JsonResponse({'csrfToken': 'set'})), name='csrf-token'),
     path('admin/', admin.site.urls),
     
     # OpenAPI 3.0 Documentation

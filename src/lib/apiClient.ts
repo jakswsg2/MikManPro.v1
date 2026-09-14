@@ -13,6 +13,27 @@ export const setAccessToken = (token: string | null) => {
 
 export const getAccessToken = () => inMemoryAccessToken;
 
+const readCookie = (name: string): string | null => {
+  const match = document.cookie.match(new RegExp(`(^|;\\s*)${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[2]) : null;
+};
+
+export const apiFetch = async (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
+  const method = (init.method || 'GET').toUpperCase();
+  const headers = new Headers(init.headers || {});
+  headers.set('Content-Type', headers.get('Content-Type') || 'application/json');
+  if (inMemoryAccessToken) headers.set('Authorization', `Bearer ${inMemoryAccessToken}`);
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    let csrfToken = readCookie('csrftoken');
+    if (!csrfToken) {
+      await fetch('/api/csrf/', { credentials: 'same-origin' });
+      csrfToken = readCookie('csrftoken');
+    }
+    if (csrfToken) headers.set('X-CSRFToken', csrfToken);
+  }
+  return fetch(input, { ...init, headers, credentials: 'same-origin' });
+};
+
 export interface UnifiedSearchParams {
   query: string;
   type?: string;

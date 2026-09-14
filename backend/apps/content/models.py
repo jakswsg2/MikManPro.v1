@@ -355,8 +355,8 @@ class MediaItem(TimeStampedUUIDModel):
             models.Index(fields=['status'], name='idx_media_status'),
             models.Index(fields=['enrichment_status'], name='idx_media_enrich_status'),
             models.Index(fields=['data_quality_score'], name='idx_media_quality_score'),
-            GinIndex(fields=['normalized_title'], name='idx_media_norm_title_gin'),
-            GinIndex(fields=['normalized_title_ar'], name='idx_media_norm_ar_gin'),
+            models.Index(fields=['normalized_title'], name='idx_media_norm_title'),
+            models.Index(fields=['normalized_title_ar'], name='idx_media_norm_ar'),
             GinIndex(fields=['tags'], name='idx_media_tags_gin'),
         ]
 

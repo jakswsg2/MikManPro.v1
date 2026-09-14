@@ -55,6 +55,7 @@ import {
   INITIAL_MEDIA_ITEMS 
 } from './data/initialData';
 import { LoungeUser, MediaServer, MediaItem } from './types';
+import { apiFetch } from './lib/apiClient';
 import { Language, translations } from './lib/i18n';
 import { ArrowRight, ArrowLeft, Shield, Layers, Server, Wifi, Terminal } from 'lucide-react';
 
@@ -72,6 +73,60 @@ export default function App() {
   const [mediaItems, setMediaItems] = useState<MediaItem[]>(() => {
     return CachedLocalStorageService.getCachedCatalog();
   });
+
+  useEffect(() => {
+    let mounted = true;
+    fetch('/api/v1/media-servers/')
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('media servers unavailable')))
+      .then((payload) => {
+        if (mounted && Array.isArray(payload.results)) setMediaServers(payload.results);
+      })
+      .catch(() => {
+        // Keep the standalone catalog when Django is unavailable.
+      });
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    fetch('/api/v1/content/items/')
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('catalog unavailable')))
+      .then((payload) => {
+        if (mounted && Array.isArray(payload.results)) setMediaItems(payload.results);
+      })
+      .catch(() => {
+        // Keep cached catalog only when Django is unavailable.
+      });
+    return () => { mounted = false; };
+  }, []);
+
+  const handleAddMediaServer = async (server: MediaServer) => {
+    const response = await apiFetch('/api/v1/media-servers/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(server),
+    });
+    if (!response.ok) throw new Error('تعذر حفظ خادم الوسائط في Django');
+    const saved = await response.json();
+    setMediaServers((current) => [...current, saved]);
+  };
+
+  const handleUpdateMediaServer = async (server: MediaServer) => {
+    const response = await apiFetch(`/api/v1/media-servers/${server.id}/`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(server),
+    });
+    if (!response.ok) throw new Error('تعذر تحديث خادم الوسائط في Django');
+    const updated = await response.json();
+    setMediaServers((current) => current.map((item) => item.id === updated.id ? updated : item));
+  };
+
+  const handleDeleteMediaServer = async (id: string) => {
+    const response = await apiFetch(`/api/v1/media-servers/${id}/`, { method: 'DELETE' });
+    if (!response.ok) throw new Error('تعذر حذف خادم الوسائط من Django');
+    setMediaServers((current) => current.filter((item) => item.id !== id));
+  };
 
   // Keep cache synchronized when mediaItems change
   useEffect(() => {
@@ -136,18 +191,6 @@ export default function App() {
     if (currentUser.id === updatedUser.id) {
       setCurrentUser(updatedUser);
     }
-  };
-
-  const handleAddServer = (newServer: MediaServer) => {
-    setMediaServers((prev) => [...prev, newServer]);
-  };
-
-  const handleUpdateServer = (updatedServer: MediaServer) => {
-    setMediaServers((prev) => prev.map((s) => (s.id === updatedServer.id ? updatedServer : s)));
-  };
-
-  const handleDeleteServer = (id: string) => {
-    setMediaServers((prev) => prev.filter((s) => s.id !== id));
   };
 
   const handleSwitchToVIP = () => {
@@ -292,9 +335,9 @@ export default function App() {
             {activeSystemTab === 'servers' && (
               <MediaServersManager
                 servers={mediaServers}
-                onAddServer={handleAddServer}
-                onUpdateServer={handleUpdateServer}
-                onDeleteServer={handleDeleteServer}
+                onAddServer={handleAddMediaServer}
+                onUpdateServer={handleUpdateMediaServer}
+                onDeleteServer={handleDeleteMediaServer}
               />
             )}
 

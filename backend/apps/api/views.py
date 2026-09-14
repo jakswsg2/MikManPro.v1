@@ -24,6 +24,7 @@ from apps.integrations.mikrotik.serializers import MikroTikRouterSerializer
 from apps.integrations.radius.models import RadiusServer
 from apps.integrations.radius.gateway import RadiusGateway
 from apps.integrations.radius.serializers import RadiusServerSerializer
+from apps.tenancy.models import Tenant, Site
 from .serializers import (
     UserSerializer, ProfileSerializer, PermissionSerializer,
     MediaServerSerializer, LibrarySerializer, MediaItemSerializer,
@@ -31,13 +32,14 @@ from .serializers import (
     ExternalIdentitySerializer, LoungeSessionSerializer, AuditLogSerializer,
     CaptivePortalLoginSerializer, SSOExchangeSerializer, SessionRefreshSerializer,
     SessionRevokeSerializer, LinkCardSerializer,
+    TenantSerializer, SiteSerializer,
     RoleSerializer, RolePermissionSerializer, UserRoleAssignmentSerializer,
     PermissionGroupSerializer, GroupPermissionSerializer, UserGroupAssignmentSerializer,
     ResourcePermissionOverrideSerializer,
     MediaSourceSerializer, LogicalContentGroupSerializer, SyncJobSerializer
 )
 from .permissions import IsLoungeAdmin
-from apps.content.search import UnifiedSearchService
+from apps.content.search.engine import UnifiedSearchEngine
 from apps.content.sync_engine import MediaSyncEngine
 from apps.content.models import MediaSource, LogicalContentGroup
 from apps.media_servers.models import SyncJob
@@ -53,6 +55,26 @@ class CurrentUserView(views.APIView):
     def get(self, request):
         serializer = UserSerializer(request.user, context={'request': request})
         return Response(serializer.data)
+
+
+class TenantViewSet(viewsets.ModelViewSet):
+    queryset = Tenant.objects.prefetch_related('sites').all()
+    serializer_class = TenantSerializer
+
+    def get_permissions(self):
+        if self.request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return [AllowAny()]
+        return [IsLoungeAdmin()]
+
+
+class SiteViewSet(viewsets.ModelViewSet):
+    queryset = Site.objects.select_related('tenant').all()
+    serializer_class = SiteSerializer
+
+    def get_permissions(self):
+        if self.request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return [AllowAny()]
+        return [IsLoungeAdmin()]
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all().select_related('tenant').prefetch_related('profile_assignments__profile', 'permission_overrides__permission')
@@ -123,6 +145,13 @@ class MediaServerViewSet(viewsets.ModelViewSet):
     queryset = MediaServer.objects.all().prefetch_related('libraries')
     serializer_class = MediaServerSerializer
     permission_classes = [IsLoungeAdmin]
+
+    def get_permissions(self):
+        if self.action == 'test_connection':
+            return [AllowAny()]
+        if self.request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return [AllowAny()]
+        return [IsLoungeAdmin()]
 
     @action(detail=True, methods=['post'], url_path='test-connection')
     def test_connection(self, request, pk=None):
@@ -197,9 +226,17 @@ class MediaItemViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = MediaItemSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_permissions(self):
+        if self.request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
     def get_queryset(self):
         user = self.request.user
         queryset = MediaItem.objects.select_related('library').prefetch_related('seasons__episodes').all()
+
+        if not user.is_authenticated:
+            return queryset.filter(is_premium=False)
 
         # Check if user has Kids profile or only kids permission
         has_kids_view = PermissionEngine.has_permission(user, 'content.kids.view')
@@ -270,17 +307,22 @@ class UnifiedSearchView(views.APIView):
 
         parsed_year = int(year) if year and year.isdigit() else None
 
-        results = UnifiedSearchService.search(
+        filters = {
+            key: value for key, value in {
+                'content_type': content_type,
+                'genre': genre,
+                'year': parsed_year,
+                'resolution': resolution,
+                'server_id': server_id,
+                'include_unavailable': include_unavailable,
+            }.items() if value is not None
+        }
+        results = UnifiedSearchEngine().search(
             user=request.user,
             query=query,
-            content_type=content_type,
-            genre=genre,
-            year=parsed_year,
-            resolution=resolution,
-            server_id=server_id,
-            limit=limit,
-            offset=offset,
-            include_unavailable=include_unavailable
+            filters=filters,
+            page=(offset // limit) + 1,
+            page_size=limit,
         )
 
         return Response(results)
@@ -570,6 +612,13 @@ class MikroTikRouterViewSet(viewsets.ModelViewSet):
     queryset = MikroTikRouter.objects.all()
     serializer_class = MikroTikRouterSerializer
     permission_classes = [IsLoungeAdmin]
+
+    def get_permissions(self):
+        if self.action in ('ping', 'active_users'):
+            return [AllowAny()]
+        if self.request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return [AllowAny()]
+        return [IsLoungeAdmin()]
 
     @action(detail=True, methods=['post'])
     def ping(self, request, pk=None):

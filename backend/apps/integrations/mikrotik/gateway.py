@@ -6,6 +6,7 @@ from django.utils import timezone
 from .models import MikroTikRouter
 from .client import RouterOSClient
 from .exceptions import MikroTikException, RouterConnectionError
+from apps.core.crypto import decrypt_secret
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ class MikroTikGateway:
             host=self.router.host,
             port=self.router.port,
             username=self.router.username,
-            password=self.router.password_encrypted,
+            password=decrypt_secret(self.router.password_encrypted),
             use_ssl=self.router.use_ssl
         )
 
@@ -45,14 +46,17 @@ class MikroTikGateway:
 
         resources = client.get_system_resource()
         identity = client.get_system_identity()
+        client.close()
 
         if self.router:
             self.router.is_online = True
             self.router.last_seen_at = timezone.now()
             self.router.latency_ms = latency
             self.router.identity = identity
-            self.router.cpu_load = resources.get('cpu-load', 7)
-            self.router.memory_free_mb = int(resources.get('free-memory', 812450000) / (1024 * 1024))
+            cpu_load = int(resources.get('cpu-load', 7))
+            free_memory = int(resources.get('free-memory', 812450000))
+            self.router.cpu_load = cpu_load
+            self.router.memory_free_mb = int(free_memory / (1024 * 1024))
             self.router.uptime = resources.get('uptime', '18d 14:32:10')
             self.router.routeros_version = resources.get('version', '7.14')
             self.router.save()
@@ -71,6 +75,7 @@ class MikroTikGateway:
         """
         client = self._get_client()
         users = client.get_active_hotspot_users()
+        client.close()
 
         if self.router:
             self.router.active_hotspot_users_count = len(users)
@@ -105,5 +110,6 @@ class MikroTikGateway:
         """
         client = self._get_client()
         success = client.remove_active_hotspot_user(username_or_ip)
+        client.close()
         logger.info(f"MikroTik Gateway: User {username_or_ip} was disconnected.")
         return success

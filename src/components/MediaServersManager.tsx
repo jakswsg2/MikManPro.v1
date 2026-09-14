@@ -21,12 +21,13 @@ import {
   Lock
 } from 'lucide-react';
 import { MediaServer } from '../types';
+import { apiFetch } from '../lib/apiClient';
 
 interface MediaServersManagerProps {
   servers: MediaServer[];
-  onAddServer: (server: MediaServer) => void;
-  onUpdateServer: (server: MediaServer) => void;
-  onDeleteServer: (id: string) => void;
+  onAddServer: (server: MediaServer) => Promise<void>;
+  onUpdateServer: (server: MediaServer) => Promise<void>;
+  onDeleteServer: (id: string) => Promise<void>;
 }
 
 export const MediaServersManager: React.FC<MediaServersManagerProps> = ({
@@ -46,61 +47,43 @@ export const MediaServersManager: React.FC<MediaServersManagerProps> = ({
   const [newServerUrl, setNewServerUrl] = useState('http://192.168.1.60:8096');
   const [newServerApiKey, setNewServerApiKey] = useState('a1b2c3d4e5f678901234567890abcdef');
 
-  const handleTestConnection = (server: MediaServer) => {
+  const handleTestConnection = async (server: MediaServer) => {
     setTestingId(server.id);
     setStatusMessage(null);
-
-    setTimeout(() => {
+    try {
+      const response = await apiFetch(`/api/v1/media-servers/${server.id}/test-connection/`, { method: 'POST' });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || result.detail || 'فشل الاتصال');
+      await onUpdateServer({ ...server, status: 'online', last_ping_at: new Date().toISOString(), server_info: result.server_info || server.server_info });
+      setStatusMessage({ id: server.id, text: result.message || 'تم الاتصال بالخادم الحقيقي بنجاح', type: 'success' });
+    } catch (error) {
+      setStatusMessage({ id: server.id, text: error instanceof Error ? error.message : 'فشل الاتصال بالخادم', type: 'error' });
+    } finally {
       setTestingId(null);
-      const isSuccess = server.local_url.includes('192.168.1.');
-      if (isSuccess) {
-        onUpdateServer({
-          ...server,
-          status: 'online',
-          last_ping_at: new Date().toISOString(),
-          server_info: {
-            server_name: `${server.name}-Daemon`,
-            version: server.server_type === 'jellyfin' ? '10.9.11' : '4.8.8.0',
-            id: 'node-' + Math.random().toString(36).substr(2, 9),
-            operating_system: 'Linux (Debian / LAN Dedicated)',
-          },
-        });
-        setStatusMessage({
-          id: server.id,
-          text: `تم الاتصال بنجاح! زمن الاستجابة: 2ms عبر LAN (HTTP 200 OK)`,
-          type: 'success',
-        });
-      } else {
-        onUpdateServer({ ...server, status: 'error' });
-        setStatusMessage({
-          id: server.id,
-          text: `فشل الاتصال: العنوان غير صالح أو خارج نطاق الشبكة المحلية`,
-          type: 'error',
-        });
-      }
-    }, 900);
+    }
   };
 
-  const handleSyncLibraries = (server: MediaServer) => {
+  const handleSyncLibraries = async (server: MediaServer) => {
     setSyncingId(server.id);
     setStatusMessage(null);
-
-    setTimeout(() => {
+    try {
+      const response = await apiFetch(`/api/v1/media-servers/${server.id}/sync-libraries/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sync_type: 'FULL' }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || result.detail || 'فشلت المزامنة');
+      await onUpdateServer({ ...server, last_sync_at: new Date().toISOString() });
+      setStatusMessage({ id: server.id, text: result.message || 'تمت المزامنة من الخادم الحقيقي', type: 'success' });
+    } catch (error) {
+      setStatusMessage({ id: server.id, text: error instanceof Error ? error.message : 'فشلت المزامنة', type: 'error' });
+    } finally {
       setSyncingId(null);
-      onUpdateServer({
-        ...server,
-        last_sync_at: new Date().toISOString(),
-        libraries_count: (server.libraries_count || 2) + 1,
-      });
-      setStatusMessage({
-        id: server.id,
-        text: `تمت المزامنة واكتشاف المكتبات والحلقات والبيانات الوصفية بنجاح!`,
-        type: 'success',
-      });
-    }, 1400);
+    }
   };
 
-  const handleCreateServer = (e: React.FormEvent) => {
+  const handleCreateServer = async (e: React.FormEvent) => {
     e.preventDefault();
     const newServer: MediaServer = {
       id: 'srv-' + Date.now(),
@@ -118,8 +101,13 @@ export const MediaServersManager: React.FC<MediaServersManagerProps> = ({
         operating_system: 'Linux Docker',
       },
     };
-    onAddServer(newServer);
-    setShowAddForm(false);
+    try {
+      await onAddServer(newServer);
+      setShowAddForm(false);
+      setStatusMessage({ id: newServer.id, text: 'تم حفظ الخادم في Django', type: 'success' });
+    } catch (error) {
+      setStatusMessage({ id: newServer.id, text: error instanceof Error ? error.message : 'تعذر حفظ الخادم', type: 'error' });
+    }
   };
 
   return (
