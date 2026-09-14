@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AIModelDefinition, AIWorkflowAudit, SelfHealingAction, AIAutonomyLevel } from '../../types';
 import { INITIAL_AI_MODELS, INITIAL_AI_AUDITS, INITIAL_SELF_HEALING_ACTIONS } from '../../data/aiArchitectureData';
+import { apiFetch } from '../../lib/apiClient';
 import { 
   Cpu, Bot, ShieldCheck, Zap, Activity, CheckCircle2, AlertTriangle, 
   Send, RefreshCw, Layers, Database, Lock, Terminal, Sparkles
@@ -34,7 +35,7 @@ export const AIGatewayDashboard: React.FC = () => {
     L5: { name: 'L5: استقلالية شاملة (Broad Autonomy)', desc: 'معطل افتراضياً - يتطلب موافقة أمنية متعددة المستويات لتعديل البنية التحتية الجوهرية.', color: 'text-red-400 bg-red-500/10' }
   };
 
-  const handleSendQuery = (e: React.FormEvent) => {
+  const handleSendQuery = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!queryInput.trim() || isProcessing) return;
 
@@ -43,27 +44,13 @@ export const AIGatewayDashboard: React.FC = () => {
     setChatLog((prev) => [...prev, { sender: 'USER', text: userText }]);
     setIsProcessing(true);
 
-    setTimeout(() => {
-      const isNetworkQuery = userText.includes('شبكة') || userText.includes('وايفاي') || userText.includes('سرعة') || userText.includes('راوتر');
-      const isMediaQuery = userText.includes('فيلم') || userText.includes('مسلسل') || userText.includes('بث') || userText.includes('4K');
-
-      let reply = '';
-      let tool = '';
-      let executionResult = '';
-
-      if (isNetworkQuery) {
-        tool = 'mikrotik_qos_api + routeros_traffic_monitor';
-        reply = `تم الاستعلام عبر بوابة RouterOS API: راوتر MikroTik Core (192.168.88.1) يعمل باستقرار بنسبة حمل معالج 14%. معدل الـ Jitter في الصالة الرئيسية 2.1ms، وجميع قوائم الـ QoS نشطة بنمط fq_codel.`;
-        executionResult = 'تم فحص الـ RouterOS API بنجاح ومطابقة سياسة الـ Zero Trust.';
-      } else if (isMediaQuery) {
-        tool = 'pgvector_semantic_search + jellyfin_catalog_filter';
-        reply = `تم إجراء بحث متجهات دلالي عبر قاعدة PostgreSQL + pgvector: عُثر على 6 وسائط بدقة 4K HDR مطابقة في خادم Jellyfin LAN بدون استهلاك لبيانات الإنترنت الخارجية، وتم التحقق من تصريح المشاهدة النشط.`;
-        executionResult = 'تم استرجاع المتجهات والتحقق من صلاحية الجلسة.';
-      } else {
-        tool = 'smart_lounge_rag_retriever';
-        reply = `استناداً إلى قاعدة المعرفة RAG لبوابة Smart Lounge: جميع الأنظمة متصلة ومحمية بسلسلة الحوكمة (Identity → Permission → Policy → Risk → Guardrails → Result → Audit).`;
-        executionResult = 'الرد مدعوم بقاعدة RAG المعرفية مع اجتياز كافة حواجز الحماية.';
-      }
+    try {
+      const response = await apiFetch('/api/v1/ai/chat/', {
+        method: 'POST',
+        body: JSON.stringify({ message: userText, model: 'auto' }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || 'AI gateway unavailable');
 
       const auditId = `audit-${Date.now()}`;
       const newAudit: AIWorkflowAudit = {
@@ -71,19 +58,24 @@ export const AIGatewayDashboard: React.FC = () => {
         timestamp: new Date().toISOString(),
         user_lounge_id: 'LU-000152',
         query: userText,
-        rag_documents_retrieved: 4,
-        model_used: selectedModel.name,
+        rag_documents_retrieved: 0,
+        model_used: data.model || 'auto',
         autonomy_level: autonomyLevel,
         guardrails_passed: true,
-        tool_invoked: tool,
-        execution_result: executionResult,
-        latency_ms: selectedModel.is_local ? 42 : 310
+        tool_invoked: data.decision || 'omniroute/auto',
+        execution_result: 'تم تمرير الطلب عبر OmniRoute بنجاح.',
+        latency_ms: data.latency_ms || 0,
       };
-
       setAudits((prev) => [newAudit, ...prev]);
-      setChatLog((prev) => [...prev, { sender: 'AI', text: reply, auditId }]);
+      setChatLog((prev) => [...prev, { sender: 'AI', text: data.reply, auditId }]);
+    } catch (error) {
+      setChatLog((prev) => [
+        ...prev,
+        { sender: 'AI', text: error instanceof Error ? error.message : 'تعذر الوصول إلى بوابة الذكاء الاصطناعي.' },
+      ]);
+    } finally {
       setIsProcessing(false);
-    }, 600);
+    }
   };
 
   const handleSimulateSelfHealing = () => {

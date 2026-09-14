@@ -68,6 +68,7 @@ from .search_views import (
     AdminSearchABTestViewSet,
     AdminSearchReindexView,
 )
+from .omniroute_views import OmniRouteChatView
 
 router = DefaultRouter()
 router.register(r'users', UserViewSet, basename='user')
@@ -106,6 +107,8 @@ router.register(r'admin/search/suggestions', AdminSearchSuggestionsViewSet, base
 router.register(r'admin/search/ab-tests', AdminSearchABTestViewSet, basename='admin-search-ab-tests')
 
 urlpatterns = [
+    path('ai/chat/', OmniRouteChatView.as_view(), name='ai-chat'),
+
     # Phase 3 Authorization & Diagnostic Engine
     path('permissions/simulate-evaluation/', PermissionSimulationView.as_view(), name='permission-simulate'),
     path('permissions/evaluate-media-access/', MediaAccessEvaluationView.as_view(), name='media-access-evaluate'),
